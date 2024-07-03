@@ -16,6 +16,7 @@ import torch.nn.functional as F
 from spikingjelly.activation_based import monitor, neuron, functional, layer
 import os
 from random import choice
+import torch
 
 
 def torus(n: int) -> Tuple[List[int], List[Tuple[int, int]]]:
@@ -35,6 +36,7 @@ def torus(n: int) -> Tuple[List[int], List[Tuple[int, int]]]:
             E.append((i + n * j, i + n * j + 1))
             E.append((i + n * j, i + n * (j + 1)))
     return V, E
+
 
 def graph_to_N(E, V):
     """
@@ -80,7 +82,6 @@ def bit_flips(tensor1, tensor2):
     num_flips = xor_tensor.sum().item()
     return num_flips
 
-import torch
 
 def voltage_modify(x, T):
         x = 2*x/T
@@ -109,8 +110,10 @@ def mutate_tensor(tensor, k):
         result.view(-1)[idx] = value
     return result
 
+
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
+
 
 class ReplayMemory(object):
     def __init__(self, capacity):
@@ -129,6 +132,7 @@ class ReplayMemory(object):
 
     def __len__(self):
         return len(self.memory)
+
 
 class NonSpikingLIFNode(neuron.LIFNode):
     def __init__(self, *args, **kwargs):
@@ -181,22 +185,22 @@ class DQSN(nn.Module):
 
 
 def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, seed):
-    BATCH_SIZE = 12
-    REPLAY_SIZE = 128
-    GAMMA = 0.999
-    EPS_START = 0.9
-    EPS_END = 0.05
-    EPS_DECAY = 200
+    BATCH_SIZE = 128
+    REPLAY_SIZE = 10000
+    GAMMA_START = 0.0001
+    GAMMA_END = 0.999
+    EPS_START = 0.01
+    EPS_END = 0.001
+    GAMMA_DECAY = 2000
     TARGET_UPDATE = 1
     HIDDEN_LAYERS = 5
     N = 16
     v, e = torus(N)
     NEIGHBOURS = graph_to_N(e, v)
 
-    GAMMA = 1/100
+    MUTATION_STRENGTH = 1/100
     T = 16
 
-    
     def set_binary():
         lengths = [[policy_net[individual].fc[2*i].weight.flatten() for i in range(HIDDEN_LAYERS+2)] for individual in range(N)]
         weights = [torch.cat(length) for length in lengths]
@@ -241,25 +245,23 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
 
     @torch.no_grad
     def select_action(state, steps_done, individual):
-        sample = random.random()
-        eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-                        math.exp(-1. * steps_done / EPS_DECAY)
-        if sample > eps_threshold:
-            with torch.no_grad():
-                ac = policy_net[individual](state).max(1).indices
-                ac = ac.view(1, 1)
-                functional.reset_net(policy_net[individual])
-                return ac
-        else:
-            return torch.tensor([[random.randrange(env[individual].action_space.n)]], device=device, dtype=torch.long)
+        # sample = random.random()
+        # eps_threshold = EPS_END + (EPS_START - EPS_END) * \
+        #                 math.exp(-1. * steps_done / EPS_DECAY)
+        # if sample > eps_threshold:
+            ac = policy_net[individual](state).max(1).indices
+            ac = ac.view(1, 1)
+            functional.reset_net(policy_net[individual])
+            return ac
+        # else:
+        #     return torch.tensor([[random.randrange(env[individual].action_space.n)]], device=device, dtype=torch.long)
 
     @torch.no_grad
-    def get_loss(individual):
+    def get_loss(individual, transitions, time_step):
+
         if len(memory[individual]) < BATCH_SIZE:
             return
-
         transitions = memory[individual].sample(BATCH_SIZE)
-
         batch = Transition(*zip(*transitions))
 
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
@@ -277,13 +279,14 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
         functional.reset_net(target_net)
 
         # Compute the expected Q-Value
-        expected_state_action_values = (next_state_values * GAMMA) + reward_batch
+        expected_state_action_values = (next_state_values *  (GAMMA_END + (GAMMA_START - GAMMA_END) * \
+                        math.exp(-1. * time_step/ GAMMA_DECAY)) ) + reward_batch
 
+        # print(float(state_action_values), float(expected_state_action_values))
         # Get the loss
         loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
         functional.reset_net(policy_net[individual])
         return loss
-    
     
     @torch.no_grad
     def update_weights(loss):
@@ -292,8 +295,10 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
         weights = [torch.cat(length) for length in lengths]
         dimension = weights[0].shape
 
+        first_iter = False
         if weights[0][0] not in [0,1]:
             weights = [torch.randint(0, 2, dimension).float().to(device) for _ in weights]
+            first_iter = True
 
         change = [False for _ in range(N)]
 
@@ -303,7 +308,7 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
             better = []
             if loss[individual] is not None:
                 for n in NEIGHBOURS[individual]:
-                    if loss[n] is not None and loss[n] < loss[individual]:
+                    if loss[n] is not None and loss[n] < loss[individual] and np.random.random() < 0.5:
                         better.append(n)
             if better != []:
                 mate = np.random.choice(better)
@@ -314,11 +319,13 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
                 change[individual] = True
             elif np.random.random() < 0.5:
                 # print(f"Individual {individual} is mutating")
-                new_weights.append(mutate_tensor(weights[individual], int(weights[individual].shape[0]*GAMMA+1)).float())
+                new_weights.append(mutate_tensor(weights[individual], int(weights[individual].shape[0]*MUTATION_STRENGTH+1)).float())
                 change[individual] = True
-            else:
+            elif first_iter:
                 new_weights.append(weights[individual])
-            
+            else:
+                new_weights.append(None)
+
         for individual in range(N):
         # Update the weights to the new computed values if a change have been made
             if change[individual]:
@@ -342,21 +349,21 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
         # Initialize the environment and state
         [env.reset() for env in env]
         state = [torch.zeros(size=[1, n_states], dtype=torch.float, device=device) for _ in range(N)]
-        steps_done = 0
         total_reward = [0 for _ in range(N)]
         loss = [10 for _ in range(N)]
         done = [False for _ in range(N)]
 
         ended = 0
 
-        # Repeat while there is less than 10 SNN which succeeded the task
         while ended < N-1:
+
             steps_done += 1
+
             for individual in range(N):
 
                 if not done[individual]:
                     # Choose the best action given current policy_net
-                    action = select_action(state[individual], steps_done, individual)
+                    action = select_action(state[individual], i_episode, individual)
                     
                     # Get the next state and reward
                     next_state, reward, termination, truncation,_ = env[individual].step(action.item())
@@ -370,7 +377,8 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
                         ended += 1
 
                     # Save the current state in replay memory
-                    memory[individual].push(state[individual], action, next_state, reward)
+                    current_state = Transition(state[individual], action, next_state, reward)
+                    # memory[individual].push(state[individual], action, next_state, reward)
 
                     state[individual] = next_state
                     if done[individual] and total_reward[individual] > max_reward:
@@ -379,19 +387,22 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
                     
 
                     # Compute the loss function
-                    loss[individual] = get_loss(individual)
+                    if not done[individual]:
+                        loss[individual] = get_loss(individual, [current_state], steps_done) # get_loss(individual, steps_done)
+                    else:
+                        loss[individual] = 1000 - total_reward[individual]
 
-                
+            print("Losses are :", round(sum([round(float(i), 2)  for i in loss]), 2) if loss[0] is not None else None)   
             # Choose better policy nets
             update_weights(loss)
 
-        print(f'Episode: {i_episode} Sum of rewards: {sum(total_reward)}')
+        print(f'Episode {i_episode} with a sum of rewards {sum(total_reward)} for gamma={round((GAMMA_END + (GAMMA_START - GAMMA_END) * math.exp(-1. * steps_done/ GAMMA_DECAY)), 3)}')
         print(f'Total rewards are: {total_reward}')
 
         if i_episode % TARGET_UPDATE == 0:
             # print("Target:", target_net.fc[0].weight[:3])
             # print("Policy:", policy_net[0].fc[0].weight[:3])
-            print("New target is:", np.argmax(total_reward))
+            print(f"New target is {np.argmax(total_reward)} with a reward value of {np.max(total_reward)}")
             target_net.load_state_dict(torch.load(max_pt_path)) # policy_net[np.argmax(total_reward)].state_dict())
 
     print('complete')
