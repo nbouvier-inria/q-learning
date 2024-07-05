@@ -51,7 +51,6 @@ def graph_to_N(E, V):
 
 
 def combine_tensors(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-
     """
     Combine two tensors of the same shape, where each element of the resulting tensor
     has a 50% chance of coming from either of the input tensors.
@@ -63,6 +62,29 @@ def combine_tensors(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
     mask = torch.rand_like(a) > 0.5  # generate a random mask
     return torch.where(mask, a, b)
+
+
+def combine_tensors_1point(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    # Get the lengths of the tensors
+    len1 = a.shape[0]
+    len2 = b.shape[0]
+
+    # Choose a random number of consecutive elements to take from tensor1
+    take1 = torch.randint(0, len1, (1,)).item()
+    take2 = torch.randint(0, len1, (1,)).item()
+    temp = take1
+    take1 = min(take1, take2)
+    take2 = max(temp, take2)
+
+    # Take the random number of consecutive elements from tensor1
+    take_from_tensor1 =a[:take1]
+    take_from_tensor2 = b[take1:take2]
+    take_from_tensor3 =a[take2:]
+
+    # Combine the two tensors
+    combined_tensor = torch.cat((take_from_tensor1, take_from_tensor2, take_from_tensor3))
+
+    return combined_tensor
 
 
 def bit_flips(tensor1, tensor2):
@@ -108,8 +130,9 @@ def mutate_tensor(tensor, k):
     indices = torch.randperm(num_elements)[:k]
     result = tensor.clone()
     for idx in indices:
-        # Randomly select a value to flip to (-1, or 1)
-        value = 2*torch.randint(0, 2, (1,)).item()-1
+        """ Change those lines to choose precision """
+        value = torch.randint(-126, 126, (1,)).item() / 126
+        # value = 2*torch.randint(0,2, (1,)).item() - 1
         result.view(-1)[idx] = value
     return result
 
@@ -162,9 +185,10 @@ class NonSpikingLIFNode(neuron.LIFNode):
 
 # Spiking DQN algorithm
 class DQSN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, hidden_layers=1, T=16, Vth=1.):
+    def __init__(self, input_size, hidden_size, output_size, hidden_layers=1, T=16, Vth=1., simplify=lambda x:x):
         super().__init__()
 
+        self.simplify = simplify
         layers = OrderedDict()
         layers["0th_layer"] = layer.Linear(input_size, hidden_size)
         layers["0th_IF"] = neuron.IFNode(v_threshold=Vth)
@@ -172,7 +196,7 @@ class DQSN(nn.Module):
             layers[f"{i+1}th_laye"] = layer.Linear(hidden_size, hidden_size)
             layers[f"{i+1}th_IF"] = neuron.IFNode(v_threshold=Vth)
         layers[f"{hidden_layers+1}th_layer"] = layer.Linear(hidden_size, output_size)
-        layers[f"output_layer"] = NonSpikingLIFNode(tau=1.01)
+        layers[f"output_layer"] = NonSpikingLIFNode(tau=2.0)
 
         self.fc = nn.Sequential(
             layers
@@ -181,17 +205,26 @@ class DQSN(nn.Module):
         self.T = T
 
     def forward(self, x):
+        entry = self.simplify(x)
         for t in range(self.T):
-            self.fc(x)
+            self.fc(entry)
         return voltage_modify(self.fc[-1].v, self.T)
 
 
-def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_size=128):
+def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_size=512):
+    # Genetic topology
     N = 49
-    BATCH_SIZE = 256
-    REPLAY_SIZE = 10000 * N
+    v, e = torus(N)
+    NEIGHBOURS = graph_to_N(e, v)
+    MUTATION_STRENGTH = 1/1000
+    COMBINE = combine_tensors_1point
     P_COMBINE = 0.5
     P_MUTATE = 0.5
+
+    # Memory and rewards
+    BATCH_SIZE = 128
+    REPLAY_SIZE = 10000
+    FINAL_REWARD = 0
     
     # General simulation control
     EPS_START = 0.9
@@ -202,21 +235,37 @@ def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_siz
     EPSILON = 0.001
     GAMMA_START = 0
     GAMMA_END = 1 - EPSILON
-    GAMMA_DECAY = 50
-    HIDDEN_LAYERS = 5
-    VTH = 4.
-    FINAL_REWARD = -10
-    v, e = torus(N)
-    NEIGHBOURS = graph_to_N(e, v)
+    GAMMA_DECAY = num_episodes
 
-    MUTATION_STRENGTH = 1/1000
-    T = 16
+    # Neural network architecture
+    HIDDEN_LAYERS = 0
+    VTH = 1.
+    T = 16 
+    
+    # Set the entry to meaningfull values between 0 and 1
+    #
+    # MUST BE SET IN REGARD TO THE PROBLEM STATE SPACE
+    #
+    def simplify(x: torch.Tensor):
+        y = torch.ones_like(x)
+        for i in range(y.shape[0]):
+            # Car position
+            y[i][0] = x[i][0]/4.8
+            # Cart velocity
+            y[i][1] = torch.arctan(x[i][1])
+            # Pole angle
+            y[i][2] = torch.sgn(x[i][2])*torch.sqrt(torch.abs(x[i][2]))/np.sqrt(0.418)
+            # Pole angular velocity
+            y[i][3] = torch.arctan(x[i][3])
+        return y
 
     def set_binary():
         lengths = [[policy_net[individual].fc[2*i].weight.flatten() for i in range(HIDDEN_LAYERS+2)] for individual in range(N)]
         weights = [torch.cat(length) for length in lengths]
         dimension = weights[0].shape
-        weights = [2*torch.randint(0, 2, dimension).float().to(device)-1 for _ in weights]
+        """ Change those lines to choose precision """
+        weights = [torch.randint(-126, 126, dimension).float().to(device)/126 for _ in weights]
+        # weights = [2*torch.randint(0, 2, dimension).float().to(device)-1 for _ in weights]
         
         for individual in range(N):
         # Update the weights to the new computed values if a change have been made
@@ -241,11 +290,13 @@ def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_siz
 
     env = gym.make(env_name, render_mode="rgb_array").unwrapped
 
+    loss = [10 for _ in range(N)]
+
     n_states = env.observation_space.shape[0]
     n_actions = env.action_space.n
 
     # Create spiking neural networks[round(float(i), 2)  for i in loss if i is not float("inf")]
-    policy_net: List[DQSN]= [DQSN(input_size=n_states, hidden_size=hidden_size, output_size=n_actions, hidden_layers=HIDDEN_LAYERS, T=T, Vth=VTH).to(device) for _ in range(N)]
+    policy_net: List[DQSN]= [DQSN(input_size=n_states, hidden_size=hidden_size, output_size=n_actions, hidden_layers=HIDDEN_LAYERS, T=T, Vth=VTH, simplify=simplify).to(device) for _ in range(N)]
     set_binary()
 
     # Initialize replay memory
@@ -298,9 +349,9 @@ def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_siz
 
         # Print information on some Action - Reward computiations
         if individual == 0 :
-           print([round(float(j), 1) for j in expected_state_action_values[0:10]], [round(float(i),1) for i in state_action_values[0:10]])
+           print([round(float(i),1) for i in state_action_values[0:10]], [round(float(j), 1) for j in expected_state_action_values[0:10]])
         # Get the loss
-        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+        loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
         return loss
     
     @torch.no_grad
@@ -323,7 +374,10 @@ def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_siz
             if better != [] and np.random.random() < P_COMBINE:
                 mate = np.random.choice(better)
                 bbefore = bit_flips(weights[mate], weights[individual])
-                new_weights.append(combine_tensors(weights[mate], weights[individual]))
+                if np.random.random() >0.5:
+                    new_weights.append(COMBINE(weights[mate], weights[individual]))
+                else:
+                    new_weights.append(COMBINE(weights[individual], weights[mate]))
                 bafter = bit_flips(weights[mate], new_weights[individual])
                 # print(f"Individual {individual} is combining with individual {mate} because {round(float(loss[mate]), 3)} < {round(float(loss[individual]), 3)}\n They have copied {bbefore - bafter}/{weights[0].shape[0]} bits")
                 change[individual] = True
@@ -339,11 +393,15 @@ def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_siz
             if change[individual]:
                 lengths[individual] = [i.size(dim=0) for i in lengths[individual]]
                 cursor = 0
+                temp = DQSN(input_size=n_states, hidden_size=hidden_size, output_size=n_actions, hidden_layers=HIDDEN_LAYERS, T=T, Vth=VTH, simplify=simplify).to(device) 
                 for i in range(HIDDEN_LAYERS+2):
-                    shape = policy_net[individual].fc[2*i].weight.size()
+                    shape = temp.fc[2*i].weight.size()
                     length = lengths[individual][i]
-                    policy_net[individual].fc[2*i].weight = torch.nn.Parameter(data=new_weights[individual][cursor:(cursor+length)].view(shape), requires_grad=False)
+                    temp.fc[2*i].weight = torch.nn.Parameter(data=new_weights[individual][cursor:(cursor+length)].view(shape), requires_grad=False)
                     cursor += length
+                if loss[individual] is not None and get_loss(temp, None, steps_done) < loss[individual]:
+                    policy_net[individual] = temp
+        
 
     if not os.path.isdir(model_dir):
         os.makedirs(model_dir)
@@ -358,7 +416,6 @@ def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_siz
         env.reset()
         state = torch.zeros(size=[1, n_states], dtype=torch.float, device=device)
         total_reward = 0
-        loss = [10 for _ in range(N)]
         done = False
 
         ended = 0
@@ -418,4 +475,4 @@ def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_siz
 game = "CartPole-v1"
 
 train(use_cuda=True, model_dir=f'./model/{game}', log_dir='./log', env_name=game, \
-        num_episodes=50, seed=1)
+        num_episodes=200, seed=1)
