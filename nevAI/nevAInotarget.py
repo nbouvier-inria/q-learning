@@ -211,9 +211,9 @@ class DQSN(nn.Module):
         return voltage_modify(self.fc[-1].v, self.T)
 
 
-def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_size=512):
+def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_size=32):
     # Genetic topology
-    N = 49
+    N = 144
     v, e = torus(N)
     NEIGHBOURS = graph_to_N(e, v)
     MUTATION_STRENGTH = 1/1000
@@ -233,12 +233,12 @@ def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_siz
 
     # Discount factor control
     EPSILON = 0.001
-    GAMMA_START = 0
+    GAMMA_START = 1 - EPSILON
     GAMMA_END = 1 - EPSILON
     GAMMA_DECAY = num_episodes
 
     # Neural network architecture
-    HIDDEN_LAYERS = 0
+    HIDDEN_LAYERS = 2
     VTH = 1.
     T = 16 
     
@@ -351,7 +351,7 @@ def train(use_cuda, model_dir, log_dir, env_name, num_episodes, seed, hidden_siz
         if individual == 0 :
            print([round(float(i),1) for i in state_action_values[0:10]], [round(float(j), 1) for j in expected_state_action_values[0:10]])
         # Get the loss
-        loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
         return loss
     
     @torch.no_grad

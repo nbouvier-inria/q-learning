@@ -154,6 +154,7 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
         loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+        print(100*loss)
 
         optimizer.zero_grad()
         loss.backward()
@@ -322,7 +323,7 @@ def play(use_cuda, pt_path, env_name, hidden_size, played_frames=60, save_fig_nu
                 plt.close()
                 break
 
-game = "MountainCar-v0"
+game = "CartPole-v1"
 
 train(use_cuda=True, model_dir=f'./model/{game}', log_dir='./log', env_name=game, \
         hidden_size=256, num_episodes=500, seed=1)
