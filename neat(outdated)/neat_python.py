@@ -1,3 +1,6 @@
+""" Source code can be found at:
+https://github.com/SirBob01/NEAT-Python?tab=readme-ov-file """
+
 import random
 import pickle
 import copy
@@ -6,45 +9,10 @@ import math
 import multiprocessing as mp
 import json
 from utility import NpEncoder
+from neat_python_base_functions import tanh, LReLU, genomic_distance, sigmoid
+import numpy as np
 
-def sigmoid(x):
-    """Return the S-Curve activation of x."""
-    return 1/(1+math.exp(-x))
-
-def tanh(x):
-    """Wrapper function for hyperbolic tangent activation."""
-    return math.tanh(x)
-
-def LReLU(x):
-    """Leaky ReLU function for x"""
-    if x >= 0:
-        return x
-    else:
-        return 0.01 * x
-
-def genomic_distance(a, b, distance_weights):
-    """Calculate the genomic distance between two genomes."""
-    a_edges = set(a._edges)
-    b_edges = set(b._edges)
-
-    # Does not distinguish between disjoint and excess
-    matching_edges = a_edges & b_edges
-    disjoint_edges = (a_edges - b_edges) | (b_edges - a_edges)
-    N_edges = len(max(a_edges, b_edges, key=len))
-    N_nodes = min(a._max_node, b._max_node)
-
-    weight_diff = 0
-    for i in matching_edges:
-        weight_diff += abs(a._edges[i].weight - b._edges[i].weight)
-
-    bias_diff = 0
-    for i in range(N_nodes):
-        bias_diff += abs(a._nodes[i].bias - b._nodes[i].bias)
-
-    t1 = distance_weights['edge'] * len(disjoint_edges)/N_edges
-    t2 = distance_weights['weight'] * weight_diff/len(matching_edges)
-    t3 = distance_weights['bias'] * bias_diff/N_nodes
-    return t1 + t2 + t3
+PRECISION = 4096
 
 def genomic_crossover(a, b):
     """Breed two genomes and return the child. Matching genes
@@ -90,7 +58,6 @@ def genomic_crossover(a, b):
 
     child.reset()
     return child
-
 
 class Hyperparameters(object):
     """Hyperparameter settings for the Brain object."""
@@ -156,8 +123,8 @@ class Genome(object):
         self._fitness = 0
         self._adjusted_fitness = 0
 
-    """ Could not resolve to make those work, JSON
-     formatting was to strict """
+    '''Could not resolve to make those work, JSON
+     formatting was to strict 
     def save(self, filename:str):
         """Save the object to filename as a
         JSON file."""
@@ -184,7 +151,7 @@ class Genome(object):
             'edges': self._edges,
             'nodes': self._nodes,
             }
-
+    
     def from_dict(self, dict):
         """Load the object from a dictionary."""
         self._inputs = dict['inputs']
@@ -192,7 +159,7 @@ class Genome(object):
         edges = dict['edges']
         self._edges = {(i, j):edges[i][j] for i in edges for j in edges[i]}
         self._nodes = dict['nodes']
-        
+    '''    
 
     def generate(self):
         """Generate the neural network of this genome with minimal
@@ -205,7 +172,7 @@ class Genome(object):
 
         for i in range(self._inputs):
             for j in range(self._inputs, self._unhidden):
-                self.add_edge(i, j, random.uniform(-1, 1))
+                self.add_edge(i, j, random.randint(-PRECISION, PRECISION))
                 
     def forward(self, inputs):
         """Evaluate inputs and calculate the outputs of the
@@ -236,12 +203,12 @@ class Genome(object):
         for j in ordered_nodes:
             ax = 0
             for i in _from[j]:
-                ax += self._edges[(i, j)].weight * self._nodes[i].output
+                ax += self._edges[(i, j)].weight * self._nodes[i].output / PRECISION
 
             node = self._nodes[j]
             node.output = node.activation(ax + node.bias)
         
-        return [self._nodes[n].output for n in range(self._inputs, self._unhidden)]
+        return [np.tan(np.pi*self._nodes[n].output/1.9999) for n in range(self._inputs, self._unhidden)]
 
     def mutate(self, probabilities):
         """Randomly mutate the genome to initiate variation."""
@@ -256,7 +223,7 @@ class Genome(object):
             self.add_node()
         elif choice == "edge":
             (i, j) = self.random_pair()
-            self.add_edge(i, j, random.uniform(-1, 1))
+            self.add_edge(i, j, random.randint(-PRECISION, PRECISION))
         elif choice == "weight_perturb" or choice == "weight_set":
             self.shift_weight(choice)
         elif choice == "bias_perturb" or choice == "bias_set":
@@ -298,9 +265,9 @@ class Genome(object):
         """Randomly shift, perturb, or set one of the edge weights."""
         e = random.choice(list(self._edges.keys()))
         if type == "weight_perturb":
-            self._edges[e].weight += random.uniform(-1, 1)
+            self._edges[e].weight = max(min(self._edges[e].weight + random.randint(-1, 1), PRECISION), -PRECISION)
         elif type == "weight_set":
-            self._edges[e].weight = random.uniform(-1, 1)
+            self._edges[e].weight = random.randint(-PRECISION, PRECISION)
 
     def shift_bias(self, type):
         """Randomly shift, perturb, or set the bias of an incoming edge."""
@@ -606,6 +573,7 @@ class Brain(object):
                     kwds=kwargs
                 )
 
+        # print(np.argmax([round(results[key].get(),2) for key in results]), -max([round(results[key].get(),2) for key in results]))
         for key in results:
             genome = self._species[key[0]]._members[key[1]]
             genome.set_fitness(results[key].get())

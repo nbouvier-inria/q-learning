@@ -154,7 +154,7 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
         loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
-        print(100*loss)
+        # print(100*loss)
 
         optimizer.zero_grad()
         loss.backward()
@@ -184,7 +184,7 @@ def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, see
             action = select_action(state, steps_done)
             steps_done += 1
             next_state, reward, termination, truncation,_ = env.step(action.item())
-            done = termination or truncation or steps_done > 200
+            done = termination or truncation
             total_reward += reward
             next_state = torch.from_numpy(next_state).float().to(device).unsqueeze(0)
             reward = torch.tensor([reward], device=device)
