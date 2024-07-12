@@ -89,6 +89,11 @@ class DQSN(nn.Module):
             self.fc[2*i].weight = torch.nn.Parameter(data=weights[cursor:(cursor+lengths[i])].view(shape), requires_grad=False)
             cursor += lengths[i]
 
+def torus_no_comm(n: int) -> Tuple[List[int], List[Tuple[int, int]]]:
+    n = int(np.sqrt(n))
+    V = [i for i in range(n**2)]
+    E = []
+    return V, E
 
 def torus(n: int) -> Tuple[List[int], List[Tuple[int, int]]]:
     """
