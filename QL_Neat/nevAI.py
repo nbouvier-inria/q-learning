@@ -1,3 +1,7 @@
+"""
+NEAT implementation using Q-Learning Loss function
+"""
+
 from collections import namedtuple
 import numpy as np
 from utility import ReplayMemory, Transition, NpEncoder

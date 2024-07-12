@@ -1,3 +1,8 @@
+"""
+NEVA implementation using deep Q-Learning loss
+function as the objective.
+"""
+
 import gymnasium as gym
 import math
 import random
@@ -116,6 +121,11 @@ Transition = namedtuple('Transition',
 
 
 class ReplayMemory(object):
+    """
+    Replay memory that saves a queue of
+    Transitions for the computation
+    of the Q-Function
+    """
     def __init__(self, capacity):
         self.capacity = capacity
         self.memory = []
@@ -135,6 +145,10 @@ class ReplayMemory(object):
 
 
 class NonSpikingLIFNode(neuron.LIFNode):
+    """
+    Leaky-Integrate node for decoding
+    of the neural network's output
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -159,6 +173,11 @@ class NonSpikingLIFNode(neuron.LIFNode):
 
 # Spiking DQN algorithm
 class DQSN(nn.Module):
+    """
+    Spiking neural network for deep Q-Learning
+    purposes using Integrate and fire nodes
+    as well as fully connected layers.
+    """
     def __init__(self, input_size, hidden_size, output_size, hidden_layers=1, T=16):
         super().__init__()
 
@@ -185,6 +204,9 @@ class DQSN(nn.Module):
 
 
 def train(use_cuda, model_dir, log_dir, env_name, hidden_size, num_episodes, seed):
+    """
+    Training loop
+    """
     N = 16
     BATCH_SIZE = 128
     REPLAY_SIZE = 10000 * N

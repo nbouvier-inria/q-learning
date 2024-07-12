@@ -8,6 +8,10 @@ Transition: Tuple[np.ndarray, int, np.ndarray, int] = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 class NpEncoder(json.JSONEncoder):
+    """
+    Encoder to normalize datas before
+    saving them with json.dump
+    """
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)

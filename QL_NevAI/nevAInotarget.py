@@ -1,3 +1,7 @@
+"""
+NEVA implementation using Q-Learning loss
+function as the objective.
+"""
 import gymnasium as gym
 import math
 import random
