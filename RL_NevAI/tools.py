@@ -17,31 +17,6 @@ from spikingjelly.activation_based import monitor, neuron, functional, layer
 from random import choice
 import torch
 
-class NonSpikingLIFNode(neuron.LIFNode):
-    """" Litterally just a non spiking
-    LIF Node. Thou might call it a LI if 
-    thou like """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def single_step_forward(self, x: torch.Tensor):
-        self.v_float_to_tensor(x)
-
-        if self.training:
-            self.neuronal_charge(x)
-        else:
-            if self.v_reset is None:
-                if self.decay_input:
-                    self.v = self.neuronal_charge_decay_input_reset0(x, self.v, self.tau)
-                else:
-                    self.v = self.neuronal_charge_no_decay_input_reset0(x, self.v, self.tau)
-                
-            else:
-                if self.decay_input:
-                    self.v = self.neuronal_charge_decay_input(x, self.v, self.v_reset, self.tau)
-                else:
-                    self.v = self.neuronal_charge_no_decay_input(x, self.v, self.v_reset, self.tau)
-
 def voltage_modify(x, T):
         """
         Modification of x to widen or recenter the output
@@ -50,7 +25,17 @@ def voltage_modify(x, T):
         return x #torch.where(x > 1, x - 1, 1-1/x)
 
 class DQSN(nn.Module):
-    """ Spiking neural network """
+    """ Spiking neural network 
+    Args:
+        input_size: input size of network
+        hidden_size: hidden size of network
+        output_size: output size of network
+        T: time steps to run the neural network for
+        Vth: Voltage threshold
+        hidden_layers: number of hidden layers
+        simplify: mask for the entry layer
+        normalisation: mask for the output layer
+    """
     def __init__(self, input_size, hidden_size, output_size, hidden_layers=1, T=16, Vth=1., simplify=lambda x:x, normalisation=voltage_modify):
         super().__init__()
 
@@ -90,6 +75,9 @@ class DQSN(nn.Module):
             cursor += lengths[i]
 
 def torus_no_comm(n: int) -> Tuple[List[int], List[Tuple[int, int]]]:
+    """
+    Returns a torus graph with n nodes and no communication edges.
+    """
     n = int(np.sqrt(n))
     V = [i for i in range(n**2)]
     E = []
@@ -97,7 +85,7 @@ def torus_no_comm(n: int) -> Tuple[List[int], List[Tuple[int, int]]]:
 
 def torus(n: int) -> Tuple[List[int], List[Tuple[int, int]]]:
     """
-    Square orus-shaped graph (V, E) of
+    Square Torus-shaped graph (V, E) of
     less than n vertices
     """
     n = int(np.sqrt(n))
@@ -141,6 +129,17 @@ def combine_tensors(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 def combine_tensors_1point(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """
+    Combine two tensors of the same shape, where a sequence
+    of a is chosen to replace thecorresponding bits of b.
+    Well suited for neural networks weights crossovers
+    Args:
+        a (torch.Tensor): First input tensor
+        b (torch.Tensor): Second input tensor
+    Returns:
+        torch.Tensor: Combined tensor
+    """
+
     # Get the lengths of the tensors
     len1 = a.shape[0]
     len2 = b.shape[0]
@@ -205,3 +204,28 @@ def mutate_tensor(tensor, k):
         result.view(-1)[idx] = value
     return result
 
+
+class NonSpikingLIFNode(neuron.LIFNode):
+    """" Litterally just a non spiking
+    LIF Node. Thou might call it a LI if 
+    thou like """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def single_step_forward(self, x: torch.Tensor):
+        self.v_float_to_tensor(x)
+
+        if self.training:
+            self.neuronal_charge(x)
+        else:
+            if self.v_reset is None:
+                if self.decay_input:
+                    self.v = self.neuronal_charge_decay_input_reset0(x, self.v, self.tau)
+                else:
+                    self.v = self.neuronal_charge_no_decay_input_reset0(x, self.v, self.tau)
+                
+            else:
+                if self.decay_input:
+                    self.v = self.neuronal_charge_decay_input(x, self.v, self.v_reset, self.tau)
+                else:
+                    self.v = self.neuronal_charge_no_decay_input(x, self.v, self.v_reset, self.tau)

@@ -1,5 +1,7 @@
-""" Source code can be found at:
-https://github.com/SirBob01/NEAT-Python?tab=readme-ov-file """
+""" 
+Source code can be found at:
+https://github.com/SirBob01/NEAT-Python?tab=readme-ov-file 
+"""
 
 import random
 import pickle

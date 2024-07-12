@@ -6,7 +6,6 @@ on most discrete action spaces from
 gymnasium.
 """
 
-
 from collections import namedtuple
 import numpy as np
 from spikingjelly.activation_based import functional
@@ -73,6 +72,8 @@ def nevai():
     env.close()
     population = [DQSN(input_size=n_states, output_size=n_actions, hidden_layers=HIDDEN_LAYERS, hidden_size=LAYERS_SIZE, Vth=VTH, T=T).to(torch.device("cuda")) for _ in range(N)]
     
+    # Modified version of to_tensor, from_tensor and
+    # get_reward that work on lists of tensors
     tensorize = lambda x: [y.to_tensor() for y in x]
     def rewardize(population):
         with ThreadPool(THREADS) as p:
@@ -80,6 +81,7 @@ def nevai():
         return rewards
     untensorize = lambda x, w : [y.from_tensor(t) for y, t in zip(x, w)]
 
+    # Set the weights of the neural networks to binary values
     t = tensorize(population)
     t = [torch.randint_like(input=tensor,low=-1, high=2) for tensor in t]
     untensorize(population, t)
@@ -102,6 +104,7 @@ def nevai():
         new_rewards = rewardize(population)
         return new_weights, new_rewards 
 
+    # Initialize rewards and weights
     rewards = rewardize(population)
     weights = tensorize(population)
     best_rewards = rewards
@@ -109,7 +112,7 @@ def nevai():
     average_rewards = np.zeros_like(rewards)
 
     for i in tqdm(range(GENERATIONS)):
-        # Define the sliding average
+        # Update the sliding average
         gamma = 0
         average_rewards = (rewards + average_rewards * gamma)/(1+gamma)
         print(np.reshape(average_rewards.round(), newshape=(int(np.sqrt(N)), int(np.sqrt(N)))))

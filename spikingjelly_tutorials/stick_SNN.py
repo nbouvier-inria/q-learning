@@ -1,3 +1,9 @@
+"""
+Tutorial code on Q-Learning for SNNs.
+For more informations and comments see:
+https://spikingjelly.readthedocs.io/zh-cn/0.0.0.0.8/clock_driven_en/6_dqn_cart_pole.html
+"""
+
 import gymnasium as gym
 import math
 import random
@@ -20,6 +26,9 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 class ReplayMemory(object):
+    """
+    Replay memory for Q-Learning Purposes
+    """
     def __init__(self, capacity):
         self.capacity = capacity
         self.memory = []
@@ -39,6 +48,10 @@ class ReplayMemory(object):
 
 
 class NonSpikingLIFNode(neuron.LIFNode):
+    """
+    Leaky-Integrade node for Spiking Neural
+    Network outputs
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
